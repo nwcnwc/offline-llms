@@ -98,13 +98,61 @@
     text-align: center;
     padding: 4px;
   }
+  .message img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    display: block;
+  }
+  .message audio {
+    display: block;
+    margin-bottom: 8px;
+    max-width: 100%;
+  }
   #input-area {
     padding: 12px 20px;
     background: #1a1a1a;
     border-top: 1px solid #2a2a2a;
     display: flex;
+    flex-direction: column;
     gap: 8px;
     flex-shrink: 0;
+  }
+  #attachments {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  #attachments:empty { display: none; }
+  .attachment-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: #ccc;
+  }
+  .attachment-chip img {
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+  .attachment-chip .remove {
+    cursor: pointer;
+    color: #888;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .attachment-chip .remove:hover { color: #c97e7e; }
+  #input-row {
+    display: flex;
+    gap: 8px;
   }
   #input {
     flex: 1;
@@ -141,20 +189,13 @@
     padding: 10px 14px;
   }
   #clear-btn:hover { background: #444; }
-  .thinking {
-    color: #888;
-    font-style: italic;
+  #attach-btn {
+    background: #333;
+    color: #aaa;
+    padding: 10px 14px;
+    font-size: 16px;
   }
-  .thinking::after {
-    content: '';
-    animation: dots 1.5s steps(4, end) infinite;
-  }
-  @keyframes dots {
-    0% { content: ''; }
-    25% { content: '.'; }
-    50% { content: '..'; }
-    75% { content: '...'; }
-  }
+  #attach-btn:hover { background: #444; }
   #webgpu-error {
     display: none;
     text-align: center;
@@ -162,6 +203,22 @@
     color: #c97e7e;
     font-size: 14px;
     line-height: 1.6;
+  }
+  #drop-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(66, 133, 244, 0.15);
+    border: 3px dashed #4285f4;
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: #4285f4;
+    pointer-events: none;
+  }
+  #drop-overlay.visible {
+    display: flex;
   }
 </style>
 </head>
@@ -180,14 +237,21 @@
   <p style="margin-top:12px;color:#888;">chrome://flags → #enable-unsafe-webgpu → Enabled</p>
 </div>
 
+<div id="drop-overlay">Drop image or audio file here</div>
+
 <div id="chat"></div>
 
 <div id="input-area">
-  <button id="clear-btn" onclick="clearChat()" title="Clear chat">Clear</button>
-  <textarea id="input" rows="1" placeholder="Type a message..." disabled
-    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"
-    oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>
-  <button id="send-btn" onclick="send()" disabled>Send</button>
+  <div id="attachments"></div>
+  <div id="input-row">
+    <button id="clear-btn" onclick="clearChat()" title="Clear chat">Clear</button>
+    <button id="attach-btn" onclick="document.getElementById('file-input').click()" title="Attach image or audio">+</button>
+    <input type="file" id="file-input" accept="image/*,audio/*" multiple hidden>
+    <textarea id="input" rows="1" placeholder="Type a message, paste or drop an image/audio..." disabled
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"
+      oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>
+    <button id="send-btn" onclick="send()" disabled>Send</button>
+  </div>
 </div>
 
 <script type="module">
@@ -195,6 +259,7 @@ import {
   AutoProcessor,
   Gemma4ForConditionalGeneration,
   TextStreamer,
+  RawImage,
 } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.6.2/dist/transformers.min.js";
 
 const MODEL_ID = "onnx-community/gemma-4-E2B-it-ONNX";
@@ -206,16 +271,108 @@ const badge = document.getElementById("badge");
 const statusText = document.getElementById("status-text");
 const progressFill = document.getElementById("progress-fill");
 const webgpuError = document.getElementById("webgpu-error");
+const attachmentsDiv = document.getElementById("attachments");
+const fileInput = document.getElementById("file-input");
+const dropOverlay = document.getElementById("drop-overlay");
 
 let processor = null;
 let model = null;
 let generating = false;
 let conversationHistory = [];
+let pendingAttachments = []; // { type: "image"|"audio", file: File, url: string }
 
-function addMessage(role, text) {
+// --- Attachment handling ---
+
+function addAttachment(file) {
+  const isImage = file.type.startsWith("image/");
+  const isAudio = file.type.startsWith("audio/");
+  if (!isImage && !isAudio) return;
+
+  const url = URL.createObjectURL(file);
+  const attachment = { type: isImage ? "image" : "audio", file, url };
+  pendingAttachments.push(attachment);
+  renderAttachments();
+}
+
+function removeAttachment(index) {
+  URL.revokeObjectURL(pendingAttachments[index].url);
+  pendingAttachments.splice(index, 1);
+  renderAttachments();
+}
+
+function renderAttachments() {
+  attachmentsDiv.innerHTML = "";
+  pendingAttachments.forEach((att, i) => {
+    const chip = document.createElement("div");
+    chip.className = "attachment-chip";
+    if (att.type === "image") {
+      const img = document.createElement("img");
+      img.src = att.url;
+      chip.appendChild(img);
+    } else {
+      chip.insertAdjacentHTML("beforeend", '<span style="font-size:16px">&#127925;</span>');
+    }
+    const name = document.createElement("span");
+    name.textContent = att.file.name.length > 20 ? att.file.name.slice(0, 17) + "..." : att.file.name;
+    chip.appendChild(name);
+    const remove = document.createElement("span");
+    remove.className = "remove";
+    remove.textContent = "\u00d7";
+    remove.onclick = () => removeAttachment(i);
+    chip.appendChild(remove);
+    attachmentsDiv.appendChild(chip);
+  });
+}
+
+// File input
+fileInput.addEventListener("change", () => {
+  for (const f of fileInput.files) addAttachment(f);
+  fileInput.value = "";
+});
+
+// Drag and drop
+let dragCounter = 0;
+document.addEventListener("dragenter", (e) => {
+  e.preventDefault();
+  dragCounter++;
+  dropOverlay.classList.add("visible");
+});
+document.addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove("visible"); }
+});
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove("visible");
+  for (const f of e.dataTransfer.files) addAttachment(f);
+});
+
+// Paste
+document.addEventListener("paste", (e) => {
+  for (const item of e.clipboardData.items) {
+    if (item.type.startsWith("image/") || item.type.startsWith("audio/")) {
+      const file = item.getAsFile();
+      if (file) addAttachment(file);
+    }
+  }
+});
+
+// --- Chat UI ---
+
+function addMessage(role, text, mediaElements) {
   const div = document.createElement("div");
   div.className = `message ${role}`;
-  div.textContent = text;
+  if (mediaElements) {
+    for (const el of mediaElements) div.appendChild(el);
+  }
+  if (text) {
+    const span = document.createElement("span");
+    span.textContent = text;
+    div.appendChild(span);
+  }
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
   return div;
@@ -286,7 +443,7 @@ async function loadModel() {
     sendBtn.disabled = false;
     input.focus();
 
-    addMessage("system", "Model loaded. Everything runs locally in your browser — no data leaves your machine.");
+    addMessage("system", "Model loaded. Everything runs locally — no data leaves your machine. You can attach images and audio via the + button, drag-and-drop, or paste.");
   } catch (err) {
     console.error(err);
     setStatus("Failed to load model", "error");
@@ -294,23 +451,76 @@ async function loadModel() {
   }
 }
 
-async function generate(userText) {
+// --- File to model input helpers ---
+
+async function fileToRawImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, img.width, img.height);
+      const rawImage = new RawImage(imageData.data, img.width, img.height, 4);
+      URL.revokeObjectURL(img.src);
+      resolve(rawImage);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+async function fileToAudioData(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  const float32 = audioBuffer.getChannelData(0); // mono
+  await audioCtx.close();
+  return float32;
+}
+
+// --- Generation ---
+
+async function generate(userText, attachments) {
   if (!model || !processor || generating) return;
   generating = true;
   sendBtn.disabled = true;
   input.disabled = true;
 
-  conversationHistory.push({
-    role: "user",
-    content: [{ type: "text", text: userText }],
-  });
+  // Build content array — media before text (as recommended)
+  const content = [];
+  const images = [];
+  const audios = [];
+
+  for (const att of attachments) {
+    if (att.type === "image") {
+      content.push({ type: "image" });
+      images.push(await fileToRawImage(att.file));
+    } else {
+      content.push({ type: "audio" });
+      audios.push(await fileToAudioData(att.file));
+    }
+  }
+  content.push({ type: "text", text: userText || "Describe this." });
+
+  conversationHistory.push({ role: "user", content });
 
   const prompt = processor.apply_chat_template(conversationHistory, {
     enable_thinking: false,
     add_generation_prompt: true,
   });
 
-  const inputs = await processor(prompt);
+  // Build processor args: (prompt, ...images, ...audios) or just (prompt)
+  const processorArgs = [prompt];
+  for (const img of images) processorArgs.push(img);
+  for (const aud of audios) processorArgs.push(aud);
+  if (images.length === 0 && audios.length === 0) {
+    processorArgs.push(null); // no media
+  }
+
+  const inputs = await processor(...processorArgs, { add_special_tokens: false });
   const assistantDiv = addMessage("assistant", "");
   let fullText = "";
   const startTime = performance.now();
@@ -322,7 +532,7 @@ async function generate(userText) {
     callback_function: (text) => {
       fullText += text;
       tokenCount++;
-      assistantDiv.textContent = fullText;
+      assistantDiv.lastChild.textContent = fullText;
       chat.scrollTop = chat.scrollHeight;
     },
   });
@@ -345,7 +555,7 @@ async function generate(userText) {
     });
   } catch (err) {
     console.error(err);
-    assistantDiv.textContent = "Error: " + err.message;
+    assistantDiv.lastChild.textContent = "Error: " + err.message;
     assistantDiv.style.color = "#c97e7e";
     conversationHistory.pop();
   }
@@ -358,15 +568,38 @@ async function generate(userText) {
 
 window.send = function () {
   const text = input.value.trim();
-  if (!text || generating) return;
+  if ((!text && pendingAttachments.length === 0) || generating) return;
   input.value = "";
   input.style.height = "auto";
-  addMessage("user", text);
-  generate(text);
+
+  // Build media elements for the user message bubble
+  const mediaEls = [];
+  for (const att of pendingAttachments) {
+    if (att.type === "image") {
+      const img = document.createElement("img");
+      img.src = att.url;
+      mediaEls.push(img);
+    } else {
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = att.url;
+      mediaEls.push(audio);
+    }
+  }
+
+  addMessage("user", text, mediaEls.length > 0 ? mediaEls : null);
+
+  const atts = [...pendingAttachments];
+  pendingAttachments = [];
+  renderAttachments();
+
+  generate(text, atts);
 };
 
 window.clearChat = function () {
   conversationHistory = [];
+  pendingAttachments = [];
+  renderAttachments();
   chat.innerHTML = "";
   addMessage("system", "Chat cleared. Model is still loaded — no re-download needed.");
 };
