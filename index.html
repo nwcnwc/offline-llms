@@ -524,6 +524,7 @@ async function generate(userText, attachments) {
     inputs = await processor(prompt, ...mediaArgs, { add_special_tokens: false });
   }
   const assistantDiv = addMessage("assistant", "");
+  const textNode = assistantDiv.querySelector("span");
   let fullText = "";
   const startTime = performance.now();
   let tokenCount = 0;
@@ -534,7 +535,7 @@ async function generate(userText, attachments) {
     callback_function: (text) => {
       fullText += text;
       tokenCount++;
-      assistantDiv.lastChild.textContent = fullText;
+      textNode.textContent = fullText;
       chat.scrollTop = chat.scrollHeight;
     },
   });
@@ -557,7 +558,7 @@ async function generate(userText, attachments) {
     });
   } catch (err) {
     console.error(err);
-    assistantDiv.lastChild.textContent = "Error: " + err.message;
+    textNode.textContent = "Error: " + err.message;
     assistantDiv.style.color = "#c97e7e";
     conversationHistory.pop();
   }
