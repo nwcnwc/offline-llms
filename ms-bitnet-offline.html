@@ -101,7 +101,8 @@
 
 <script type="module">
 // Custom wllama build with BitNet i2_s support, hosted from this repo
-const REPO_BASE = "https://raw.githubusercontent.com/nwcnwc/offline-llms/main/wllama-bitnet";
+// jsdelivr serves GitHub files with correct MIME types (raw.githubusercontent does not)
+const REPO_BASE = "https://cdn.jsdelivr.net/gh/nwcnwc/offline-llms@main/wllama-bitnet";
 const { Wllama } = await import(`${REPO_BASE}/index.js`);
 
 const MODEL_URL = "https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf/resolve/main/ggml-model-i2_s.gguf";
