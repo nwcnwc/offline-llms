@@ -518,13 +518,19 @@ async function generate(userText, attachments) {
     add_generation_prompt: true,
   });
 
-  // Build processor call based on what media is attached
+  // Build processor call: processor(prompt, images?, audio?, options?)
+  // Images: pass single RawImage or null. Audio: pass single Float32Array or null.
   let inputs;
-  if (images.length === 0 && audios.length === 0) {
+  const image = images.length > 0 ? images[0] : null;
+  const audio = audios.length > 0 ? audios[0] : null;
+  if (!image && !audio) {
     inputs = await processor(prompt);
+  } else if (image && !audio) {
+    inputs = await processor(prompt, image, { add_special_tokens: false });
+  } else if (!image && audio) {
+    inputs = await processor(prompt, null, audio, { add_special_tokens: false });
   } else {
-    const mediaArgs = [...images, ...audios];
-    inputs = await processor(prompt, ...mediaArgs, { add_special_tokens: false });
+    inputs = await processor(prompt, image, audio, { add_special_tokens: false });
   }
   const assistantDiv = addMessage("assistant", "");
   const textNode = assistantDiv.querySelector("span");
