@@ -100,6 +100,16 @@
 </div>
 
 <script type="module">
+// Patch Worker constructor to use classic workers instead of module workers
+// Module workers from blob: URLs fail with cross-origin redirect errors on file://
+const _OrigWorker = Worker;
+window.Worker = function(url, opts) {
+  if (opts && opts.type === "module") {
+    delete opts.type;
+  }
+  return new _OrigWorker(url, opts);
+};
+
 // Custom wllama build with BitNet i2_s support, hosted from this repo
 // jsdelivr serves GitHub files with correct MIME types (raw.githubusercontent does not)
 const REPO_BASE = "https://cdn.jsdelivr.net/gh/nwcnwc/offline-llms@main/wllama-bitnet";
