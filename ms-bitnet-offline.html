@@ -209,7 +209,7 @@ async function loadModel() {
     }
 
     setStatus("Loading model into WASM...", "loading");
-    await wllama.loadModel([modelBlob], { n_ctx: 4096 });
+    await wllama.loadModel([modelBlob], { n_ctx: 2048, use_mmap: false, use_mlock: false });
 
     setStatus("Ready — CPU inference, fully offline", "");
     progressFill.style.width = "0%";
