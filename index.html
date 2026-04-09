@@ -251,22 +251,31 @@ async function loadModel() {
     processor = await AutoProcessor.from_pretrained(MODEL_ID);
 
     setStatus("Loading model weights (~1.5 GB)...", "loading");
-    let lastPercent = 0;
+    const fileProgress = {};
+    let totalBytes = 0;
+    let loadedBytes = 0;
 
     model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
       dtype: "q4f16",
       device: "webgpu",
       progress_callback: (info) => {
-        if (info.status === "progress" && info.total) {
-          const pct = Math.round((info.loaded / info.total) * 100);
-          if (pct !== lastPercent) {
-            lastPercent = pct;
-            progressFill.style.width = pct + "%";
-            setStatus(`Downloading: ${pct}% (${(info.loaded / 1e6).toFixed(0)} MB)`, "loading");
-          }
+        if (info.status === "initiate") {
+          const name = info.file || "file";
+          setStatus(`Fetching ${name.split("/").pop()}...`, "loading");
         }
-        if (info.status === "done") {
-          progressFill.style.width = "100%";
+        if (info.status === "progress" && info.file) {
+          const prev = fileProgress[info.file] || { loaded: 0, total: info.total || 0 };
+          loadedBytes += (info.loaded - prev.loaded);
+          if (prev.total === 0 && info.total) totalBytes += info.total;
+          fileProgress[info.file] = { loaded: info.loaded, total: info.total || 0 };
+          const mb = (loadedBytes / 1e6).toFixed(0);
+          const totalMb = totalBytes > 0 ? ` / ${(totalBytes / 1e6).toFixed(0)} MB` : " MB";
+          const pct = totalBytes > 0 ? Math.round((loadedBytes / totalBytes) * 100) : 0;
+          progressFill.style.width = (totalBytes > 0 ? pct : 50) + "%";
+          setStatus(`Downloading: ${mb}${totalMb}${pct > 0 ? ` (${pct}%)` : ""}`, "loading");
+        }
+        if (info.status === "done" && info.file) {
+          setStatus(`Loaded ${info.file.split("/").pop()}`, "loading");
         }
       },
     });
