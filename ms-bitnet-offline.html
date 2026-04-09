@@ -157,6 +157,7 @@ async function loadModel() {
     setStatus("Downloading BitNet model (~500 MB)...", "loading");
 
     await wllama.loadModelFromUrl(MODEL_URL, {
+      useCache: false,
       n_ctx: 4096,
       progressCallback: ({ loaded, total }) => {
         if (total > 0) {
