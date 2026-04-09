@@ -411,14 +411,17 @@ async function loadModel() {
     const fileProgress = {};
     let totalBytes = 0;
     let loadedBytes = 0;
+    let fileCount = 0;
+    let doneCount = 0;
+    let currentFile = null;
 
     model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
       dtype: "q4f16",
       device: "webgpu",
       progress_callback: (info) => {
-        if (info.status === "initiate") {
-          const name = info.file || "file";
-          setStatus(`Fetching ${name.split("/").pop()}...`, "loading");
+        if (info.status === "initiate" && info.file) {
+          currentFile = info.file.split("/").pop();
+          fileCount++;
         }
         if (info.status === "progress" && info.file) {
           const prev = fileProgress[info.file] || { loaded: 0, total: info.total || 0 };
@@ -426,13 +429,15 @@ async function loadModel() {
           if (prev.total === 0 && info.total) totalBytes += info.total;
           fileProgress[info.file] = { loaded: info.loaded, total: info.total || 0 };
           const mb = (loadedBytes / 1e6).toFixed(0);
-          const totalMb = totalBytes > 0 ? ` / ${(totalBytes / 1e6).toFixed(0)} MB` : " MB";
+          const totalMb = totalBytes > 0 ? ` / ${(totalBytes / 1e6).toFixed(0)} MB` : "";
           const pct = totalBytes > 0 ? Math.round((loadedBytes / totalBytes) * 100) : 0;
           progressFill.style.width = (totalBytes > 0 ? pct : 50) + "%";
-          setStatus(`Downloading: ${mb}${totalMb}${pct > 0 ? ` (${pct}%)` : ""}`, "loading");
+          const fname = currentFile || info.file.split("/").pop();
+          setStatus(`Downloading: ${mb}${totalMb} MB — ${fname} (file ${doneCount + 1}/${fileCount})`, "loading");
         }
         if (info.status === "done" && info.file) {
-          setStatus(`Loaded ${info.file.split("/").pop()}`, "loading");
+          doneCount++;
+          currentFile = null;
         }
       },
     });
