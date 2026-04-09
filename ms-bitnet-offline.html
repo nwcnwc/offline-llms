@@ -99,25 +99,15 @@
   <button id="send-btn" onclick="send()" disabled>Send</button>
 </div>
 
-<script>
-// file:// origins can't use WASM module workers. Detect and show instructions.
-if (location.protocol === "file:") {
-  document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("badge").textContent = "needs server";
-    document.getElementById("badge").className = "badge error";
-    document.getElementById("status-text").textContent = "";
-    document.getElementById("chat").innerHTML = `
-      <div class="message system" style="max-width:90%;text-align:left;font-size:14px;line-height:1.8;color:#ccc;">
-        <p style="margin-bottom:12px;"><strong>BitNet requires a local server</strong> (unlike Gemma, which runs from file://).</p>
-        <p style="margin-bottom:12px;">This is because the CPU/WASM runtime uses module workers which browsers block from file:// origins.</p>
-        <p style="margin-bottom:8px;">Open a terminal in your Downloads folder and run:</p>
-        <pre style="background:#111;padding:12px;border-radius:6px;color:#50e6ff;font-size:15px;margin-bottom:12px;cursor:pointer;user-select:all;">npx serve .</pre>
-        <p>Then open <strong>http://localhost:3000/ms-bitnet-offline.html</strong></p>
-      </div>`;
-  });
-}
-</script>
 <script type="module">
+// Patch Worker to use classic (non-module) workers.
+// The embedded worker code has zero ES module imports, so type:"module" is unnecessary.
+// Classic workers avoid the cross-origin redirect error on file:// origins.
+const _OrigWorker = Worker;
+window.Worker = function(url, opts) {
+  return new _OrigWorker(url, opts ? { ...opts, type: undefined } : opts);
+};
+
 // Stub out storage APIs that fail from file:// and blob: origins
 if (!navigator.storage || !navigator.storage.getDirectory) {
   navigator.storage = navigator.storage || {};
