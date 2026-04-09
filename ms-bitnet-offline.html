@@ -175,17 +175,30 @@ async function loadModel() {
 
     setStatus("Downloading BitNet model (~500 MB)...", "loading");
 
-    await wllama.loadModelFromUrl(MODEL_URL, {
-      useCache: false,
-      n_ctx: 4096,
-      progressCallback: ({ loaded, total }) => {
-        if (total > 0) {
-          const pct = Math.round((loaded / total) * 100);
-          progressFill.style.width = pct + "%";
-          setStatus(`Downloading: ${(loaded / 1e6).toFixed(0)} / ${(total / 1e6).toFixed(0)} MB (${pct}%)`, "loading");
-        }
-      },
-    });
+    // Download model ourselves to bypass wllama's OPFS/cache system (fails on file://)
+    const response = await fetch(MODEL_URL);
+    if (!response.ok) throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+    const contentLength = +response.headers.get("content-length") || 0;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.length;
+      if (contentLength > 0) {
+        const pct = Math.round((loaded / contentLength) * 100);
+        progressFill.style.width = pct + "%";
+        setStatus(`Downloading: ${(loaded / 1e6).toFixed(0)} / ${(contentLength / 1e6).toFixed(0)} MB (${pct}%)`, "loading");
+      } else {
+        setStatus(`Downloading: ${(loaded / 1e6).toFixed(0)} MB`, "loading");
+      }
+    }
+    const modelBlob = new Blob(chunks);
+
+    setStatus("Loading model into WASM...", "loading");
+    await wllama.loadModel([modelBlob], { n_ctx: 4096 });
 
     setStatus("Ready — CPU inference, fully offline", "");
     progressFill.style.width = "0%";
