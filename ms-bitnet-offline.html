@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>BitNet b1.58 2B — Offline Chat</title>
+<title>BitNet b1.58 2B — Offline Chat (CPU)</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -144,14 +144,6 @@
     padding: 10px 14px;
   }
   #clear-btn:hover { background: #444; }
-  #webgpu-error {
-    display: none;
-    text-align: center;
-    padding: 40px 20px;
-    color: #c97e7e;
-    font-size: 14px;
-    line-height: 1.6;
-  }
 </style>
 </head>
 <body>
@@ -159,14 +151,9 @@
 <header>
   <h1>BitNet b1.58 2B</h1>
   <span id="badge" class="badge loading">loading</span>
-  <span id="status-text">Checking WebGPU...</span>
+  <span id="status-text">Initializing...</span>
 </header>
 <div id="progress-bar"><div id="progress-fill"></div></div>
-
-<div id="webgpu-error">
-  <p><strong>WebGPU is not available in this browser.</strong></p>
-  <p>You need Chrome 113+, Edge 113+, or Safari 18+ with WebGPU enabled.</p>
-</div>
 
 <div id="chat"></div>
 
@@ -179,7 +166,7 @@
 </div>
 
 <script type="module">
-import { BitNet } from "https://cdn.jsdelivr.net/npm/0xbitnet/dist/index.js";
+import { Wllama } from "./wllama-bitnet/index.min.js";
 
 const MODEL_URL = "https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf/resolve/main/ggml-model-i2_s.gguf";
 
@@ -189,9 +176,8 @@ const sendBtn = document.getElementById("send-btn");
 const badge = document.getElementById("badge");
 const statusText = document.getElementById("status-text");
 const progressFill = document.getElementById("progress-fill");
-const webgpuError = document.getElementById("webgpu-error");
 
-let model = null;
+let wllama = null;
 let generating = false;
 let conversationHistory = [];
 
@@ -212,52 +198,7 @@ function setStatus(text, state) {
   badge.textContent = state === "loading" ? "loading" : state === "error" ? "error" : "ready";
 }
 
-async function checkWebGPU() {
-  if (!navigator.gpu) return false;
-  try {
-    const adapter = await navigator.gpu.requestAdapter();
-    return !!adapter;
-  } catch { return false; }
-}
-
-async function loadModel() {
-  const hasWebGPU = await checkWebGPU();
-  if (!hasWebGPU) {
-    webgpuError.style.display = "block";
-    chat.style.display = "none";
-    document.getElementById("input-area").style.display = "none";
-    setStatus("WebGPU not available", "error");
-    return;
-  }
-
-  setStatus("Loading BitNet model (~500 MB)...", "loading");
-
-  try {
-    model = await BitNet.load(MODEL_URL, {
-      onProgress: (p) => {
-        const pct = Math.round(p.fraction * 100);
-        progressFill.style.width = pct + "%";
-        const phase = p.phase || "downloading";
-        setStatus(`${phase}: ${pct}%`, "loading");
-      },
-    });
-
-    setStatus("Ready — fully offline, 1-bit inference", "");
-    progressFill.style.width = "0%";
-    input.disabled = false;
-    sendBtn.disabled = false;
-    input.focus();
-
-    addMessage("system", "Model loaded. Microsoft BitNet b1.58 (2B params, 1-bit weights) running entirely in your browser via WebGPU. Text only — no image/audio support.");
-  } catch (err) {
-    console.error(err);
-    setStatus("Failed to load model", "error");
-    addMessage("system", "Error loading model: " + err.message);
-  }
-}
-
 function buildPrompt() {
-  // LLaMA 3 chat template (BitNet uses this format)
   let prompt = "<|begin_of_text|>";
   prompt += "<|start_header_id|>system<|end_header_id|>\n\nYou are a helpful assistant.<|eot_id|>";
   for (const msg of conversationHistory) {
@@ -267,8 +208,51 @@ function buildPrompt() {
   return prompt;
 }
 
+async function loadModel() {
+  setStatus("Initializing WASM runtime...", "loading");
+
+  try {
+    // Resolve WASM paths relative to this HTML file
+    const basePath = new URL(".", import.meta.url).href;
+
+    wllama = new Wllama({
+      "single-thread/wllama.js": basePath + "wllama-bitnet/single-thread/wllama.js",
+      "single-thread/wllama.wasm": basePath + "wllama-bitnet/single-thread/wllama.wasm",
+      "multi-thread/wllama.js": basePath + "wllama-bitnet/multi-thread/wllama.js",
+      "multi-thread/wllama.wasm": basePath + "wllama-bitnet/multi-thread/wllama.wasm",
+    });
+
+    setStatus("Downloading BitNet model (~500 MB)...", "loading");
+
+    await wllama.loadModelFromUrl(MODEL_URL, {
+      n_ctx: 4096,
+      progressCallback: ({ loaded, total }) => {
+        if (total > 0) {
+          const pct = Math.round((loaded / total) * 100);
+          progressFill.style.width = pct + "%";
+          const mb = (loaded / 1e6).toFixed(0);
+          const totalMb = (total / 1e6).toFixed(0);
+          setStatus(`Downloading: ${mb} / ${totalMb} MB (${pct}%)`, "loading");
+        }
+      },
+    });
+
+    setStatus("Ready — CPU inference, fully offline", "");
+    progressFill.style.width = "0%";
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+
+    addMessage("system", "Model loaded. Microsoft BitNet b1.58 (2B params, 1-bit ternary weights) running on your CPU via WebAssembly. No GPU needed. Text only.");
+  } catch (err) {
+    console.error(err);
+    setStatus("Failed to load model", "error");
+    addMessage("system", "Error: " + err.message);
+  }
+}
+
 async function generate(userText) {
-  if (!model || generating) return;
+  if (!wllama || generating) return;
   generating = true;
   sendBtn.disabled = true;
   input.disabled = true;
@@ -283,16 +267,23 @@ async function generate(userText) {
   let tokenCount = 0;
 
   try {
-    for await (const token of model.generate(prompt, {
-      max_tokens: 1024,
-      temperature: 0.7,
-      stop: ["<|eot_id|>", "<|end_of_text|>"],
-    })) {
-      fullText += token;
-      tokenCount++;
-      textNode.textContent = fullText;
-      chat.scrollTop = chat.scrollHeight;
-    }
+    const result = await wllama.createCompletion(prompt, {
+      nPredict: 1024,
+      sampling: {
+        temp: 0.7,
+        top_k: 40,
+        top_p: 0.9,
+      },
+      onNewToken: (token, piece, currentText) => {
+        fullText = currentText;
+        tokenCount++;
+        textNode.textContent = fullText;
+        chat.scrollTop = chat.scrollHeight;
+      },
+    });
+
+    fullText = result;
+    textNode.textContent = fullText;
 
     const elapsed = (performance.now() - startTime) / 1000;
     const tps = (tokenCount / elapsed).toFixed(1);

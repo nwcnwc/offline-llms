@@ -18,7 +18,8 @@ Single HTML files that run LLMs entirely in your browser via WebGPU. No server, 
 - **Size**: ~500 MB download (native 1-bit weights), cached after first load
 - **Context**: 4K tokens
 - **Architecture**: 1.58-bit ternary weights {-1, 0, +1} — the smallest frontier-class model
-- **Engine**: [0xBitNet](https://github.com/m96-chan/0xBitNet) + custom WebGPU WGSL kernels
+- **Engine**: [wllama](https://github.com/ngxson/wllama) (llama.cpp compiled to WASM) — runs on CPU, no GPU needed
+- **Custom build**: `wllama-bitnet/` contains a custom WASM build of llama.cpp with i2_s (BitNet ternary) support
 
 ## Usage
 
