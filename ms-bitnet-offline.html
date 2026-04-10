@@ -1598,19 +1598,13 @@ var ProxyToWorker = class {
       }
       let moduleCode = this.multiThread ? WLLAMA_MULTI_THREAD_CODE : WLLAMA_SINGLE_THREAD_CODE;
       let mainModuleCode = moduleCode.replace("var Module", "var ___Module");
-      // Exclude _wasmB64 from RUN_OPTIONS to avoid double-serializing 2MB
-      const rtPathConfig = {};
-      for (const k in this.pathConfig) { if (!k.startsWith('_')) rtPathConfig[k] = this.pathConfig[k]; }
       const runOptions = {
-        pathConfig: rtPathConfig,
+        pathConfig: this.pathConfig,
         nbThread: this.nbThread
       };
-      // If _wasmB64 is provided, decode it and set Module.wasmBinary
-      const wasmB64Str = this.pathConfig._wasmB64 || '';
       const completeCode = [
-        wasmB64Str ? 'var _WASM_BIN=(function(){var b=atob(' + JSON.stringify(wasmB64Str) + ');var a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer})();' : '',
         `const RUN_OPTIONS = ${JSON.stringify(runOptions)};`,
-        `function wModuleInit() { if(typeof _WASM_BIN!=='undefined'){Module.wasmBinary=_WASM_BIN;} ${mainModuleCode}; return Module; }`,
+        `function wModuleInit() { ${mainModuleCode}; return Module; }`,
         LLAMA_CPP_WORKER_CODE
       ].join(";\n\n");
       this.worker = createWorker(completeCode);
@@ -2708,7 +2702,6 @@ var Wllama = class {
           this.pathConfig["single-thread/wllama.wasm"]
         )
       };
-      if (this.pathConfig._wasmB64) mPathConfig._wasmB64 = this.pathConfig._wasmB64;
       this.proxy = new ProxyToWorker(
         mPathConfig,
         this.useMultiThread ? nbThreads : 1,
