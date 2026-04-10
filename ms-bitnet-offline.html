@@ -1607,7 +1607,7 @@ var ProxyToWorker = class {
       const completeCode = [
         _wb ? "var _WASM_BIN=(function(){var b=atob(" + JSON.stringify(_wb) + ");var a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer})()" : "",
         `const RUN_OPTIONS = ${JSON.stringify(runOptions)};`,
-        _wb ? `function wModuleInit() { Module.wasmBinary = _WASM_BIN; ${mainModuleCode}; return Module; }` : `function wModuleInit() { ${mainModuleCode}; return Module; }`,
+        _wb ? `function wModuleInit() { Module.wasmBinary = _WASM_BIN; delete Module.mainScriptUrlOrBlob; ${mainModuleCode}; return Module; }` : `function wModuleInit() { ${mainModuleCode}; return Module; }`,
         LLAMA_CPP_WORKER_CODE
       ].join(";\n\n");
       this.worker = createWorker(completeCode);
