@@ -3452,7 +3452,10 @@ window.ModelManager = ModelManager;
 
 
 // --- Application code ---
-const MODEL_URL = 'https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf/resolve/main/ggml-model-i2_s.gguf';
+// DEBUG: serve model locally via "npx serve ." for fast iteration
+// TODO: switch back to HuggingFace URL when working
+const MODEL_URL = 'http://localhost:3000/ggml-model-i2_s.gguf';
+// const MODEL_URL = 'https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf/resolve/main/ggml-model-i2_s.gguf';
 
 const statusEl = document.getElementById('status');
 const chatEl = document.getElementById('chat');
