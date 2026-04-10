@@ -1605,18 +1605,12 @@ var ProxyToWorker = class {
         pathConfig: rtPathConfig,
         nbThread: this.nbThread
       };
-      // If _wasmB64 is provided, decode it in the worker and set Module.wasmBinary
-      // before the Emscripten glue runs. This bypasses all WASM fetch/XHR.
-      const wasmInject = this.pathConfig._wasmB64 ? `
-        var _WASM_BIN = (function(){var b=atob(${JSON.stringify(this.pathConfig._wasmB64)});var a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer})();
-      ` : '';
-      const wModuleBody = this.pathConfig._wasmB64
-        ? `if(typeof _WASM_BIN!=='undefined'){Module=Module||{};Module.wasmBinary=_WASM_BIN;} ${mainModuleCode}; return Module;`
-        : `${mainModuleCode}; return Module;`;
+      // If _wasmB64 is provided, decode it and set Module.wasmBinary
+      const wasmB64Str = this.pathConfig._wasmB64 || '';
       const completeCode = [
-        wasmInject,
+        wasmB64Str ? 'var _WASM_BIN=(function(){var b=atob(' + JSON.stringify(wasmB64Str) + ');var a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer})();' : '',
         `const RUN_OPTIONS = ${JSON.stringify(runOptions)};`,
-        `function wModuleInit() { ${wModuleBody} }`,
+        `function wModuleInit() { if(typeof _WASM_BIN!=='undefined'){Module.wasmBinary=_WASM_BIN;} ${mainModuleCode}; return Module; }`,
         LLAMA_CPP_WORKER_CODE
       ].join(";\n\n");
       this.worker = createWorker(completeCode);
