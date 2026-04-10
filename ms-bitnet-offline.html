@@ -3540,9 +3540,8 @@ async function init() {
     // 1. Create WASM blob URL from inline base64
     setStatus('Decoding inline WASM...');
     const wasmB64 = document.getElementById('wllama-wasm').textContent.trim();
-    const wasmBinary = Uint8Array.from(atob(wasmB64), c => c.charCodeAt(0));
-    const wasmBlob = new Blob([wasmBinary], { type: 'application/wasm' });
-    const wasmUrl = URL.createObjectURL(wasmBlob);
+    // Use data: URL instead of blob: URL — workers can fetch data: URLs but not blob: URLs from file://
+    const wasmUrl = 'data:application/wasm;base64,' + wasmB64;
 
     // 2. Create Wllama instance
     setStatus('Creating Wllama instance...');
